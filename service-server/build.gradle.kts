@@ -38,13 +38,7 @@ kotlin {
     }
 }
 
-tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
-    jvmArgs = listOf(
-        "-Dio.netty.leakDetectionLevel=PARANOID",
-        "-Dio.netty.leakDetection.targetRecords=40",
-        "-Xmx100m"
-    )
-}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }

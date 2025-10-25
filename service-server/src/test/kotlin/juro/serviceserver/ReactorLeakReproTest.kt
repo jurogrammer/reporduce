@@ -1,107 +1,81 @@
 package juro.serviceserver
 
 import io.netty.util.ResourceLeakDetector
-import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
-import java.time.Duration
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.http.client.reactive.ReactorClientHttpConnector
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.awaitBody
-import reactor.netty.resources.LoopResources
+import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
+import reactor.netty.DisposableServer
 import reactor.netty.http.client.HttpClient
+import reactor.netty.http.server.HttpServer
+import reactor.netty.resources.LoopResources
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 class ReactorLeakReproTest {
 
-    private lateinit var serviceServerClient: WebClient
-    private lateinit var domainServer: Process
-    private lateinit var loopResources: LoopResources
-
-    @LocalServerPort
-    private var port: Int = 8080
+    private lateinit var reactorHttpServer: DisposableServer
+    private lateinit var reactorHttpClient: HttpClient
 
     @BeforeEach
     fun setUp() {
-        startDomainServer()
-        loopResources = LoopResources.create("service-cl")
-        serviceServerClient = WebClient.builder()
-            .baseUrl("http://localhost:$port")
-            .clientConnector(
-                ReactorClientHttpConnector(
-                    HttpClient.create()
-                        .runOn(loopResources)
-                )
-            )
-            .build()
+        startReactorHttpServer()
+        reactorHttpClient = HttpClient.create()
+            .runOn(LoopResources.create("reactor-client"))
     }
 
     @AfterEach
     fun tearDown() {
-        domainServer.destroy()
+        reactorHttpServer.disposeNow()
     }
 
     @Test
-    fun `reproduce reactor leak with mass cancellation`() {
+    fun `reproduce reactor leak with reactor http client and server`() {
         ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID)
-        val cancelAfterMillis = 14L
+        val cancelAfterMillis = 10L
         val concurrentSize = 400
 
-        repeat(100) { round -> // Reduced iterations for testing
-            runConcurrentRequestsAndCancelEarly(concurrentSize, cancelAfterMillis)
+        repeat(100) { round ->
+            runReactorHttpRequestsAndCancelEarly(concurrentSize, cancelAfterMillis)
         }
     }
 
-    private fun runConcurrentRequestsAndCancelEarly(concurrentSize: Int, delayMillis: Long) {
+
+    private fun runReactorHttpRequestsAndCancelEarly(concurrentSize: Int, delayMillis: Long) {
         val disposable = Flux.range(0, concurrentSize)
-            .flatMap { callUserApi() }
+            .flatMap { callReactorHttpApi() }
             .subscribeOn(Schedulers.parallel())
             .subscribe()
-        
-        // Wait for the specified delay
+
         Thread.sleep(delayMillis)
-        
-        // Cancel the requests
         disposable.dispose()
-        
-        // Additional delay
-        Thread.sleep(1000)
+
+        Thread.sleep(100)
     }
 
-    private fun callUserApi(): Mono<String> {
-        return serviceServerClient.get()
-            .uri("/user")
-            .retrieve()
-            .bodyToMono(String::class.java)
+    private fun callReactorHttpApi(): Mono<String> {
+        return reactorHttpClient
+            .get()
+            .uri("http://localhost:8082/user")
+            .responseSingle { response, content -> content.asString() }
             .onErrorResume { Mono.empty() }
     }
 
-
-    private fun startDomainServer() {
-        // Java HttpServer 사용
-        Thread {
-            try {
-                val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(8081), 0)
-                server.createContext("/user") { exchange ->
-                    val response = """{"id":1,"name":"John"}"""
-                    exchange.responseHeaders.set("Content-Type", "application/json")
-                    exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
-                    exchange.responseBody.use { it.write(response.toByteArray()) }
+    private fun startReactorHttpServer() {
+        val serverLoopResources = LoopResources.create("reactor-server")
+        reactorHttpServer = HttpServer.create()
+            .port(8082)
+            .runOn(serverLoopResources)
+            .route { routes ->
+                routes.get("/user") { request, response ->
+                    response
+                        .header("Content-Type", "application/json")
+                        .sendString(Mono.just("""{"id":1,"name":"John"}"""))
                 }
-                server.start()
-                println("Domain server started on port 8081")
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
-        }.start()
+            .bindNow()
 
-        // 서버 시작 대기
-        Thread.sleep(1000)
+        println("Reactor HTTP server started on port 8082")
     }
 
 }

@@ -1,69 +1,18 @@
-# Reproduce Project
+# Reactor Netty Resource Leak Reproduction
 
-This is a multi-module Spring Boot project designed to reproduce and debug request-related issues using Netty and concurrent service interactions.
+**Versions:** Java 21, Kotlin 2.1.10, Spring Boot 3.4.3, Reactor Netty
 
-## 📦 Modules
+This project reproduces Reactor Netty resource leaks when HTTP requests are cancelled early. The test makes 400 concurrent requests per round (100 rounds total) and cancels them after 10ms to trigger memory leaks.
 
-```
-client → service-server → domain-server
-```
-
-- **domain-server**: Downstream service
-- **service-server**: Middle service that calls domain-server
-- **client**: Triggers the chain by calling service-server
-
----
-
-## 🚀 How to Run
-
-1. **Give execute permission to the script** (first time only):
+## Quick Run
 
 ```bash
-chmod +x run-all.sh
+./gradlew -p service-server clean test -Dorg.gradle.jvmargs="-Xms64m -Xmx128m" --info
 ```
 
-2. **Run the script**:
+## What You'll See
 
-```bash
-./run-all.sh
-```
+- **Success**: No LEAK warnings
+- **Leak Detected**: `LEAK: ByteBuf.release() was not called before it's garbage-collected`
 
----
-
-### What the script does
-
-1. Starts `domain-server` in the background.
-2. Starts `service-server` in the background with Netty leak detection enabled:
-   - `-Dio.netty.leakDetectionLevel=PARANOID`
-   - `-Dio.netty.leakDetection.targetRecords=40`
-   - `-Xmx100m`
-3. Waits for 5 seconds to allow services to initialize.
-4. Executes `client` in the foreground.
-5. Shuts down background servers automatically after client finishes.
-
----
-
-## 📂 Logs
-
-Each module writes its logs to the `logs/` directory:
-
-```
-logs/
-├── domain-server.log
-├── service-server.log
-└── client.log
-```
-
----
-
-## 💻 Requirements
-
-- **Java 21** (automatically handled by Gradle toolchains)
-- **Gradle Wrapper** (included)
-
----
-
-## 🧼 Cleanup
-
-- Servers shut down automatically after the client completes.
-- Pressing `Ctrl + C` will also clean up background services.
+The test automatically enables paranoid leak detection to catch resource leaks.

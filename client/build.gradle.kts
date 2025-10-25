@@ -40,3 +40,9 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+tasks.withType<Test>().configureEach {
+    // 힙 고정 (절대값)
+    minHeapSize = "64m"
+    maxHeapSize = "128m"
+}

@@ -34,7 +34,17 @@ data class User(
 @Component
 class DomainUserClient(builder: WebClient.Builder) {
 
-    private val webClient = builder.baseUrl("http://localhost:8081").build()
+    private val loopResources = reactor.netty.resources.LoopResources.create("domain-cl")
+
+    private val webClient = builder
+        .baseUrl("http://localhost:8081")
+        .clientConnector(
+            org.springframework.http.client.reactive.ReactorClientHttpConnector(
+                reactor.netty.http.client.HttpClient.create()
+                    .runOn(loopResources)
+            )
+        )
+        .build()
 
     fun getUserMono(): Mono<User> {
         return webClient.get().uri("/user").retrieve().bodyToMono<User>()

@@ -1,10 +1,6 @@
 package juro.client
 
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -12,7 +8,6 @@ import org.springframework.boot.runApplication
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
-import java.util.concurrent.atomic.AtomicInteger
 
 @SpringBootApplication
 class ClientApplication
@@ -31,30 +26,18 @@ class MyApplicationRunner : ApplicationRunner {
         val concurrentSize = 300
 
         repeat(1_000_000) { round ->
-            val successCount = AtomicInteger(0)
-            runConcurrentRequestsAndCancelEarly(concurrentSize, successCount, cancelAfterMillis)
+            runConcurrentRequestsAndCancelEarly(concurrentSize, cancelAfterMillis)
 
             delay(100L)
-            cancelAfterMillis = adjustCancelAfterMillis(cancelAfterMillis, successCount, concurrentSize)
-            println("[$round] success=${successCount.get()} delay=$cancelAfterMillis")
+            cancelAfterMillis = 14L
         }
     }
 
-    private fun adjustCancelAfterMillis(delayMillis: Long, successCount: AtomicInteger, concurrentSize: Int): Long {
-        var delayMillis1 = delayMillis
-        delayMillis1 = when {
-            successCount.get() == 0 -> delayMillis1 + 1
-            successCount.get() == concurrentSize -> delayMillis1 - 1
-            else -> delayMillis1
-        }
-        return delayMillis1
-    }
-
-    private suspend fun runConcurrentRequestsAndCancelEarly(concurrentSize: Int, successCount: AtomicInteger, delayMillis: Long) {
+    private suspend fun runConcurrentRequestsAndCancelEarly(concurrentSize: Int, delayMillis: Long) {
         coroutineScope {
             val job = launch {
                 repeat(concurrentSize) {
-                    launch { if (callUserApi()) successCount.incrementAndGet() }
+                    launch { callUserApi() }
                 }
             }
 
